@@ -1,13 +1,16 @@
 @charset "utf-8";
 
-.body {
-    position: absolute;
+.body, .footer {
+    position: relative;
     top: 56px;
-    display: flex;
 }
 
 div, p {
     border-radius: 3px;
+}
+
+.div-flex {
+    display: flex;
 }
 
 .flex-1 {
@@ -19,4 +22,91 @@ div, p {
     text-align: right;
     font-family: Cambria, Cochin, Georgia, Times, 'Times New Roman', serif;
     width: 80%;
+    margin: 3px 0;
+}
+
+.page-index-shadow {
+    padding: 32px 0 16px;
+    box-shadow: 0 0 13px rgba(175,177,193,.15), 0 6px 20px rgba(24,29,39,.05);
+    position: relative;
+    z-index: 1;
+    margin: -5px 0;
+}
+
+.about-body {
+    font-style: 14px;
+    line-height: 1.25rem;
+    width: 80%;
+    margin: 0 auto;
+}
+
+.about-body p {
+    line-height: 1.6;
+    margin-top: 12px;
+    text-align: justify;
+}
+
+.footer {
+    display: block;
+    margin: 20px 15px;
+    width: 90%;
+}
+
+.ivu-global-footer {
+    margin: 48px 0 24px 0;
+    padding: 0 16px;
+    text-align: center;
+}
+
+.i-copyright {
+    flex: 0 0 auto;
+}
+
+.ivu-global-footer-links {
+    margin-bottom: 8px;
+}
+
+.ivu-global-footer {
+    margin: 48px 0 24px 0;
+    padding: 0 16px;
+    text-align: center;
+}
+
+.ivu-global-footer-copyright {
+    color: #808695;
+    font-size: 14px;
+}
+
+.ivu-global-footer-links a:not(:last-child) {
+    margin-right: 40px;
+}
+
+.ivu-global-footer-links a {
+    font-size: 14px;
+    color: #808695;
+    -webkit-transition: all .2s ease-in-out;
+    transition: all .2s ease-in-out;
+}
+
+a {
+    color: #2d8cf0;
+    background: transparent;
+    text-decoration: none;
+    outline: none;
+    cursor: pointer;
+    transition: color .2s ease;
+}
+a:active, a:hover {
+    outline: 0;
+    text-decoration: none;
+}
+
+.ivu-global-footer-links a {
+    font-size: 14px;
+    color: #808695;
+    -webkit-transition: all .2s ease-in-out;
+    transition: all .2s ease-in-out;
+}
+.ivu-global-footer-links a:hover {
+    color: #515a6e;
 }
