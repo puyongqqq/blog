@@ -49,7 +49,7 @@ AOP：
    docker pull wurstmeister/zookeeper:latest
    ```
 
-2.  编写docker-compose.yml
+2. 编写docker-compose.yml
 
    ```yml
    version: '3'
@@ -83,7 +83,7 @@ AOP：
              ntainer_name: kafka
    ```
 
-3.  运行docker-compose
+3. 运行docker-compose
 
    ```
    docker-compose up -d
