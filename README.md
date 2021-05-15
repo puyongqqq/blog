@@ -39,9 +39,7 @@ AOP：
 
 ### 3. kakfa - docker
 
-```
-* 注意： kafka作为消息队列，它只是一个服务，而数据的存储依赖于zookeeper。kafka默认有zookeeper，但生产环境建议将zookeeper单独部署。原因有待补充。
-```
+> 注意： kafka作为消息队列，它只是一个服务，而数据的存储依赖于zookeeper。kafka默认有zookeeper，但生产环境建议将zookeeper单独部署。原因有待补充。 
 
 1. 拉取zookeeper镜像
 
@@ -135,7 +133,7 @@ AOP：
    
 ### 4. RestFul
 
-​	
+
 
 ### 5. I/O
 
@@ -176,10 +174,9 @@ AOP：
 
 没有一款jdk将CMS设置为默认的垃圾收集器。
 
-```shell
- # 查看jdk默认的垃圾收集器
- java -XX:+PrintCommandLineFlags -version
-```
+>  查看jdk默认的垃圾收集器
+>  java -XX:+PrintCommandLineFlags -version
+
 
 CMS(Concurrent Mark Sweep)收集器是一种以获取最短回收停顿时间为目标的收集器，停顿时间短，用户体验就好。
 
@@ -209,21 +206,17 @@ G1收集器特性：
 
 为什么能做到可预测的停顿？
 
-```shell
-是因为可以有计划的避免在整个Java堆中进行全区域的垃圾收集。G1收集器将内存分大小相等的独立区域（Region），新生代和老年代概念保留，但是已经不再物理隔离。G1跟踪各个Region获得其收集价值大小，在后台维护一个优先列表；每次根据允许的收集时间，优先回收价值最大的Region（名称Garbage-First的由来）；这就保证了在有限的时间内可以获取尽可能高的收集效率。
-```
+> 是因为可以有计划的避免在整个Java堆中进行全区域的垃圾收集。G1收集器将内存分大小相等的独立区域（Region），新生代和老年代概念保留，但是已经不再物理隔离。G1跟踪各个Region获得其收集价值大小，在后台维护一个优先列表；每次根据允许的收集时间，优先回收价值最大的Region（名称Garbage-First的由来）；这就保证了在有限的时间内可以获取尽可能高的收集效率。
 
 对象被其他Region的对象引用了怎么办？
 
-```shell
-判断对象存活时，是否需要扫描整个Java堆才能保证准确？在其他的分代收集器，也存在这样的问题（而G1更突出）：新生代回收的时候不得不扫描老年代？ 
-无论G1还是其他分代收集器，JVM都是使用Remembered Set来避免全局扫描： 
-每个Region都有一个对应的Remembered Set； 
-每次Reference类型数据写操作时，都会产生一个Write Barrier 暂时中断操作； 
-然后检查将要写入的引用指向的对象是否和该Reference类型数据在不同的 Region（其他收集器：检查老年代对象是否引用了新生代对象）； 
-如果不同，通过CardTable把相关引用信息记录到引用指向对象的所在Region对应的Remembered Set中；
-进行垃圾收集时，在GC根节点的枚举范围加入 Remembered Set ，就可以保证不进行全局扫描，也不会有遗漏。
-```
+> 判断对象存活时，是否需要扫描整个Java堆才能保证准确？在其他的分代收集器，也存在这样的问题（而G1更突出）：新生代回收的时候不得不扫描老年代？ 
+> 无论G1还是其他分代收集器，JVM都是使用Remembered Set来避免全局扫描： 
+> 每个Region都有一个对应的Remembered Set； 
+> 每次Reference类型数据写操作时，都会产生一个Write Barrier 暂时中断操作； 
+> 然后检查将要写入的引用指向的对象是否和该Reference类型数据在不同的 Region（其他收集器：检查老年代对象是否引用了新生代对象）； 
+> 如果不同，通过CardTable把相关引用信息记录到引用指向对象的所在Region对应的Remembered Set中；
+> 进行垃圾收集时，在GC根节点的枚举范围加入 Remembered Set ，就可以保证不进行全局扫描，也不会有遗漏。
 
 ![image-20210407104651177](C:\Users\admin\AppData\Roaming\Typora\typora-user-images\image-20210407104651177.png)
 
@@ -262,6 +255,8 @@ ZGC的回收过程。
 - **并发重分配（Concurrent Relocate）**：重分配是ZGC执行过程中的核心阶段，这个过程要把重分配集中的存活对象复制到新的Region上，并为重分配集中的每个Region维护一个转发表（Forward Table），记录从旧对象到新对象的转向关系。
 - **并发重映射（Concurrent Remap）**：重映射所做的就是修正整个堆中指向重分配集中旧对象的所有引用，但是ZGC中对象引用存在“自愈”功能，所以这个重映射操作并不是很迫切。
 
+
+
 三色标记 （CMS、G1、ZGC 都采用了三色标记算法）
 
 在并发的可达性分析算法中我们使用三色标记（Tri-color Marking）来标记对象是否被收集器访问过：
@@ -270,10 +265,16 @@ ZGC的回收过程。
 - **黑色**：表示对象已经被垃圾收集器访问过，且这个对象的所有引用都已经扫描过。黑色的对象代表已经扫描过，它是安全存活的，如果有其他对象引用指向了黑色对象，无须重新扫描一遍。**黑色对象不可能直接（不经过灰色对象）指向某个白色对象**。
 - **灰色**：表示对象已经被垃圾收集器访问过，但这个对象上至少存在一个引用还没有被扫描过。
 
+三色标记存在的问题。
+
+- **浮动垃圾**。并发标记的过程中，若一个已经被标记成黑色或者灰色的对象，突然变成了垃圾，由于不会再对黑色标记过的对象重新扫描,所以不会被发现，那么这个对象不是白色的但是不会被清除，重新标记也不能从GC Root中去找到，所以成为了浮动垃圾，**浮动垃圾对系统的影响不大，留给下一次GC进行处理即可**。
+- **对象漏标问题**。并发标记的过程中，一个业务线程将一个未被扫描过的白色对象断开引用成为垃圾（删除引用），同时黑色对象引用了该对象（增加引用）（这两部可以不分先后顺序）；因为黑色对象的含义为其属性都已经被标记过了，重新标记也不会从黑色对象中去找，导致该对象被程序所需要，却又要被GC回收，此问题会导致系统出现问题。
+
+无论是对引用关系记录的插入还是删除，虚拟机的记录操作都是通过写屏障实现的。CMS是基于增量更新来做并发标记的，G1、Shenandoah则是用原始快照来实现。
 
 ### 8. 对象分配
 
-当对象刚创建时，优先考虑在栈上分配内存。因为栈上分配内存效率很高，当栈帧从虚拟机栈 pop 出去时，对象就被回收了。但在栈上分配内存时，必须保证此对象不会被其他栈帧所引用，否则此栈帧被 pop 出去时，就会出现对象逃逸，产生 bug。
+当对象刚创建时，**优先考虑在栈上分配内存**。因为栈上分配内存效率很高，**当栈帧从虚拟机栈 pop 出去时，对象就被回收了**。但在栈上分配内存时，必须保证此对象不会被其他栈帧所引用，否则此栈帧被 pop 出去时，就会出现对象逃逸，产生 bug。
 
 如果此对象不能在栈上分配内存，则判断此对象是否是大对象，如果对象过大，则直接分配到老年代（具体多大这个阈值可以通过-XX:PretenureSizeThreshold参数设置）。
 
@@ -287,8 +288,102 @@ ZGC的回收过程。
 
 ![thisisimage](https://mmbiz.qpic.cn/mmbiz_png/icHoerKO3NjJdBsBDiaw3cMer4icUZ8E1ItgUNOgWicHpRzrweH3ZL3geW4A64TwNiau79pHzstcnzR1uNW5NBlCXJw/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1)
 
-1. 什么是STW？何时是STW？
+1. 什么是安全点、安全区？
+
+   安全点：程序执行期间的所有GC Root已知并且所有堆对象的内容一致的点.
+   选择：1.方法调用 2.循环跳转 3.异常抛出。 
+   安全区：线程在执行到某一个区域时，此时内存中对象的引用不会发生变化。
+   
 2. 标量替换和逃逸分析？
+
+   
+
 3. TLAB是什么？默认占用的空间是多少？
+
+   
+
 4. 同步消除？
 
+
+
+### 9. Synchronized锁升级过程
+
+
+
+### 10. Lock及AQS
+
+1. 公平锁（ReentrantLock#FairSync）
+
+   ```java
+   public final void acquire(int arg) {
+       if (!tryAcquire(arg) &&   // 尝试获取锁，成功则退出
+       	acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) // 获取锁失败，去排队
+           // 挂起当前线程
+       	selfInterrupt();
+   }
+   ```
+
+   ```java
+   protected final boolean tryAcquire(int acquires) {
+       final Thread current = Thread.currentThread();
+       // 获取锁的状态
+       int c = getState();
+       if (c == 0) {
+           // 没有线程持有锁
+           if (!hasQueuedPredecessors() &&   // 判断是否有正在排队的线程
+               compareAndSetState(0, acquires)) { // 无线程排队。尝试设置state为1
+               // 设置当前线程持为持有锁的线程
+               setExclusiveOwnerThread(current);
+               return true;
+           }
+       }
+       else if (current == getExclusiveOwnerThread()) {
+           // 判断是否为持有锁的线程重入，如果是，则state + 1
+           int nextc = c + acquires;
+           if (nextc < 0)
+           	throw new Error("Maximum lock count exceeded");
+           setState(nextc);
+           return true;
+       }
+   
+       // 1. state开始为0， 但是CAS没有成功
+       // 2. 有线程正在持有锁
+       return false;
+   }
+   ```
+
+   ```java
+   final boolean acquireQueued(final Node node, int arg) {
+       boolean interrupted = false;
+       try {
+         for (;;) {
+           // 获取当前Node的前一个节点
+           final Node p = node.predecessor();
+           // 如果当前节点p是头，则进行尝试获取锁
+           if (p == head && tryAcquire(arg)) {
+             setHead(node);
+             p.next = null; // help GC
+             return interrupted;
+           }
+           // 如果获取锁失败，那么应该挂起
+           if (shouldParkAfterFailedAcquire(p, node)) // 判断是否需要park
+             interrupted |= parkAndCheckInterrupt();
+         }
+       } catch (Throwable t) {
+         // 取消抢占锁
+         cancelAcquire(node);
+         // 响应中断
+         if (interrupted)
+           selfInterrupt(); 
+         throw t;
+       }
+   }
+   ```
+
+   
+
+2. 非公平锁（ReentrantLock#NonfairSync）
+
+
+
+### 11. 线程池ThreadPool
