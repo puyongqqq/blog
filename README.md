@@ -549,4 +549,4 @@ ZGC的回收过程。
 
 1. <a href="https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html" target="_blank">新一代垃圾回收器ZGC的探索与实践</a>
 
-2. <a href="https://github.com/farmerjohngit/myblog/issues/12" target="_blank">死磕Synchronized底层实现"</a>
+2. <a href="https://github.com/farmerjohngit/myblog/issues/12" target="_blank">死磕Synchronized底层实现</a>
