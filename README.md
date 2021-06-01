@@ -172,7 +172,7 @@ AOP：
 
 ### 7. CMS，G1，ZGC区别。
 
-没有一款jdk将CMS设置为默认的垃圾收集器。
+在Hotstop系列虚拟机中，没有一款JVM将CMS设置为默认的垃圾收集器。
 
 >  查看jdk默认的垃圾收集器
 >  java -XX:+PrintCommandLineFlags -version
@@ -218,8 +218,6 @@ G1收集器特性：
 > 如果不同，通过CardTable把相关引用信息记录到引用指向对象的所在Region对应的Remembered Set中；
 > 进行垃圾收集时，在GC根节点的枚举范围加入 Remembered Set ，就可以保证不进行全局扫描，也不会有遗漏。
 
-![image-20210407104651177](C:\Users\admin\AppData\Roaming\Typora\typora-user-images\image-20210407104651177.png)
-
 不计算维护Remembered Set的操作，回收过程可以分为4个步骤（与CMS较为相似）：
 
 - **初始标记**：仅仅标记GC Roots能直接关联到的对象，并修改TAMS(Next Top at Mark Start)的值，让下一阶段用户程序并发运行时能在正确可用的Region中创建新对象，需要“Stop The World”
@@ -228,6 +226,10 @@ G1收集器特性：
 - **筛选回收**：首先对各个Region的回收价值和成本进行排序，然后根据用户期望的GC停顿时间来定制回收计划，最后按计划回收一些价值高的Region中垃圾对象。回收时采用复制算法，从一个或多个Region复制存活对象到堆上的另一个空的Region，并且在此过程中压缩和释放内存；可以并发进行，降低停顿时间，并增加吞吐量。
 
 ZGC（Z Garbage Collector）是一款由Oracle公司研发的，以低延迟为首要目标的一款垃圾收集器。它是基于**动态Region**内存布局，（暂时）**不设年龄分代**，使用了**读屏障**、**染色指针**和**内存多重映射**等技术来实现**可并发的标记-整理算法**的收集器。在JDK 11新加入，还在实验阶段，主要特点是：**回收TB级内存（最大4T），停顿时间不超过10ms**。
+
+![](https://p0.meituan.net/travelcube/40838f01e4c29cfe5423171f08771ef8156393.png@1812w_940h_80q)
+
+> ZGC只有三个STW阶段：**初始标记**，**再标记**，**初始转移**。其中，初始标记和初始转移分别都只需要扫描所有GC Roots，其处理时间和GC Roots的数量成正比，一般情况耗时非常短；再标记阶段STW时间很短，最多1ms，超过1ms则再次进入并发标记阶段。即，ZGC几乎所有暂停都只依赖于GC Roots集合大小，停顿时间不会随着堆的大小或者活跃对象的大小而增加。与ZGC对比，G1的转移阶段完全STW的，且停顿时间随存活对象的大小增加而增加。
 
 动态Region
 
@@ -274,6 +276,21 @@ ZGC的回收过程。
 
 ### 8. 对象分配
 
+> 在虚拟机的规范中，只是要求对象优先在Eden区创建，否则在老年代创建。由于Hotspot的JIT技术成熟，使得对象在堆上分配内存并不是一定的了。
+>
+> JIT：通过 javac 将可以将Java程序源代码编译，转换成 java 字节码，JVM 通过解释字节码将其翻译成对应的机器指令，逐条读入，逐条解释翻译。Java编译器经过解释执行，其执行速度必然会比直接执行可执行的二进制字节码慢很多。为了解决这种效率问题，引入了 JIT（Just In Time ，即时编译） 技术。
+>
+> 有了JIT技术之后，Java程序还是通过解释器进行解释执行，当JVM发现某个方法或代码块运行特别频繁的时候，就会认为这是“热点代码”（Hot Spot Code)。然后JIT会把部分“热点代码”翻译成本地机器相关的机器码，并进行优化，然后再把翻译后的机器码缓存起来，以备下次使用。
+>
+> 如何确定热点代码？
+>
+> 1. 方法计数器（Counter Based Hot Spot Detection)。默认阈值在 C1 模式下是 1500 次，在 C2 模式在是 10000 次。采用这种方法的虚拟机会为每个方法，甚至是代码块建立计数器，统计方法的执行次数，某个方法超过阀值就认为是热点方法，触发JIT编译。
+> 2. 回边计数器。回边计数器用于统计一个方法中循环体代码执行的次数，在字节码中遇到控制流向后跳转的指令称为“回边”（Back Edge），该值用于计算是否触发 C1 编译的阈值，在不开启分层编译的情况下，C1 默认为 13995，C2 默认为 10700。建立回边计数器的主要目的是为了触发 OSR（On StackReplacement）编译，即栈上编译。在一些循环周期比较长的代码段中，当循环达到回边计数器阈值时，JVM 会认为这段是热点代码，JIT 编译器就会将这段代码编译成机器语言并缓存，在该循环时间段内，会直接将执行代码替换，执行缓存的机器语言。
+>
+> 编译优化
+>
+> JIT在做了热点检测识别出热点代码后，除了会对其字节码进行缓存，还会对代码做各种优化。这些优化中，比较重要的几个有：逃逸分析、 锁消除、 锁膨胀、 方法内联、 空值检查消除、 类型检测消除、 公共子表达式消除等。
+
 当对象刚创建时，**优先考虑在栈上分配内存**。因为栈上分配内存效率很高，**当栈帧从虚拟机栈 pop 出去时，对象就被回收了**。但在栈上分配内存时，必须保证此对象不会被其他栈帧所引用，否则此栈帧被 pop 出去时，就会出现对象逃逸，产生 bug。
 
 如果此对象不能在栈上分配内存，则判断此对象是否是大对象，如果对象过大，则直接分配到老年代（具体多大这个阈值可以通过-XX:PretenureSizeThreshold参数设置）。
@@ -288,31 +305,162 @@ ZGC的回收过程。
 
 ![thisisimage](https://mmbiz.qpic.cn/mmbiz_png/icHoerKO3NjJdBsBDiaw3cMer4icUZ8E1ItgUNOgWicHpRzrweH3ZL3geW4A64TwNiau79pHzstcnzR1uNW5NBlCXJw/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1)
 
-1. 什么是安全点、安全区？
+1. 对象分配方式？
 
-   安全点：程序执行期间的所有GC Root已知并且所有堆对象的内容一致的点.
+   1. 指针碰撞（Serial、ParNew等带Compact过程的收集器）
+
+      > 假设Java堆中内存是绝对规整的，所有用过的内存都放在一边，空闲的内存放在另一边，中间放着一个指针作为分界点的指示器，那所分配内存就仅仅是把那个指针向空闲空间那边挪动一段与对象大小相等的距离，这种分配方式称为“指针碰撞”（Bump the Pointer）。
+
+   2. 空闲列表（CMS这种基于Mark-Sweep算法的收集器）
+
+      > 如果Java堆中的内存并不是规整的，已使用的内存和空闲的内存相互交错，那就没有办法简单地进行指针碰撞了，虚拟机就必须维护一个列表，记录上哪些内存块是可用的，在分配的时候从列表中找到一块足够大的空间划分给对象实例，并更新列表上的记录，这种分配方式称为“空闲列表”（Free List）。
+
+2. 什么是安全点、安全区？
+
+   安全点：程序执行期间的所有GC Root已知并且所有堆对象的内容一致的点。
    选择：1.方法调用 2.循环跳转 3.异常抛出。 
    安全区：线程在执行到某一个区域时，此时内存中对象的引用不会发生变化。
-   
-2. 标量替换和逃逸分析？
 
-   
+3. 标量替换和逃逸分析？（对象在栈上分配的技术基础）
 
-3. TLAB是什么？默认占用的空间是多少？
+   1. 标量替换
 
-   
+      > 允许将对象打散分配在栈上，比如若一个对象拥有两个字段，会将这两个字段视作局部变量进行分配。
 
-4. 同步消除？
+   2. 逃逸分析
 
+      > 逃逸分析的目的是判断对象的作用域是否有可能逃逸出函数体。
 
+   3. 锁消除
+
+      > 如果是在单线程环境下，其实完全没有必要使用线程安全的容器，但就算使用了，因为不会有线程竞争。
+
+4. TLAB是什么？默认占用的空间是多少？
+
+   > TLAB（Thread local Allocation Buffer，本地线程分配缓冲区），一块线程私有的专用内存分配区域，默认情况下占整个Eden区的1%。在同一时刻，可能存在多个线程同时申请内存分配，因此对象分配都需要进行同步（内存分配是使用**CAS+失败重试**保证更新操作的原子性）。在极端情况下，分配对象的效率就会降低。基于此，JVM采用TLAB来避免多线程冲突，给对象分配内存时，通过给线程私有的TLAB上分配对象，提高的对象分配的效率。如果TLAB的剩余空间不足以创建某个对象时，在虚拟机内部维护了一个refill_waste的值，当请求对象大于refill_waste时，会选择在堆中分配，若小于该值，则会废弃当前TLAB，新建TLAB来分配对象。
 
 ### 9. Synchronized锁升级过程
 
+> 32位JVM，MarkWord结构
 
+<table>
+	<tr>
+		<th> 锁状态 </th>
+		<th> 23 bits </th>
+        <th> 2 bits </th>
+        <th> 4 bits </th>
+        <th> 1 bits </th>
+        <th> 2 bits </th>
+ 	</tr>
+	<tr>
+		<td> 无锁 </td>
+		<td colspan="2" style="color:#f33b45;"> identity hash code（首次调用） </td>
+		<td> 分代年龄 </td>
+        <td> 0 </td>
+        <td> 01 </td>
+ 	</tr>
+    <tr>
+		<td> 偏向锁 </td>
+		<td > Thread ID </td>
+        <td > epoch </td>
+		<td> 分代年龄 </td>
+        <td> 1 </td>
+        <td> 01 </td>
+ 	</tr>
+    <tr>
+		<td> 轻量级锁 </td>
+		<td colspan="4"> 指向线程栈中Lock Record的指针 </td>
+        <td> 00 </td>
+ 	</tr>
+    <tr>
+		<td> 重量级锁 </td>
+		<td colspan="4"> 指向监视器（monitor）的指针 </td>
+        <td> 10 </td>
+ 	</tr>
+    <tr>
+		<td> GC标记 </td>
+		<td colspan="4"> 0 </td>
+        <td> 11 </td>
+ 	</tr>
+ </table>
+
+> 64位JVM，MarkWord结构
+
+<table cellpadding="0" cellspacing="0">
+  <thead>
+    <tr>
+      <th style="width:112px;">锁状态</th>
+      <th style="width:204px;">25 bits</th>
+      <th colspan="2" style="width:255px;">31 bits</th>
+      <th style="width:80px;">1 bit</th>
+      <th style="width:89px;">4 bits</th>
+      <th style="width:68px;">1 bit</th>
+      <th style="width:117px;">2 bits</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="width:112px;">无锁状态</td>
+      <td style="width:204px;">unused</td>
+      <td colspan="2" style="width:255px;">
+        <span style="color:#f33b45;">identity</span>&nbsp;<span style="color:#f33b45;">hash code</span>（首次调用）
+      </td>
+      <td style="width:80px;">unused</td>
+      <td style="width:89px;">分代年龄</td>
+      <td style="width:68px;">0</td>
+      <td style="width:117px;">01</td>
+    </tr>
+    <tr>
+      <th style="width:112px;">锁状态</th>
+      <th colspan="2" rowspan="1" style="width:400px;">54 bits</th>
+      <th style="width:89px;">2 bits</th>
+      <th style="width:80px;">1 bit</th>
+      <th style="width:89px;">4 bits</th>
+      <th style="width:68px;">1 bit</th>
+      <th style="width:117px;">2 bits</th>
+    </tr>
+    <tr>
+      <td style="width:112px;">偏向锁</td>
+      <td colspan="2" rowspan="1" style="width:204px;">Thread ID</td>
+      <td style="width:89px;">epoch</td>
+      <td style="width:80px;">unused</td>
+      <td style="width:89px;">分代年龄</td>
+      <td style="width:68px;">1</td>
+      <td style="width:117px;">01</td>
+    </tr>
+    <tr>
+      <th style="width:112px;">锁状态</th>
+      <th colspan="6" rowspan="1" style="width:204px;">62 bits</th>
+      <th style="width:117px;">2 bits</th>
+    </tr>
+    <tr>
+      <td style="width:112px;">轻量级锁</td>
+      <td colspan="6" rowspan="1" style="width:685px;">指向线程栈中Lock Record的指针</td>
+      <td style="width:117px;">00</td>
+    </tr>
+    <tr>
+      <td style="width:112px;">重量级锁</td>
+      <td colspan="6" style="width:685px;">指向监视器（monitor）的指针</td>
+      <td style="width:117px;">10</td>
+    </tr>
+    <tr>
+      <td style="width:112px;">GC标记</td>
+      <td colspan="6" style="width:685px;">0</td>
+      <td style="width:117px;">11</td>
+    </tr>
+  </tbody>
+</table>
+
+
+
+1. 新创建对象。处于可偏向状态（101，匿名偏向锁），也可以说是无锁。因为此时对象的偏向锁标志位为1，但是偏向线程Id为0，age = 0, epoch = 0。如果直接或者间接的生成了hashCode，那么这个对象将变为无锁状态（001）。
+2. 一个线程访问且无竞争。首先会去判断是否为可偏向状态，如果是则通过CAS（V：进入同步块之前的Markword，A：无锁状态下的Markword，B：当前线程id）尝试获取锁，成功则获取到偏向锁，执行同步代码块，当同步代码块执行完之后，并不会释放这个偏向锁，对象的Markword仍然是第一个线程获取偏向锁的值。当这个线程再次进入时，会直接拿到偏向锁，执行同步代码块。当存在第二个线程去访问这个对象，那么通过CAS替换失败，然后锁升级为轻量级锁。（存在极端情况，第一个线程持有锁时，第二个线程去获取锁，然后锁升级，线程一执行到一个全局安全点时，线程一挂起，会通过CAS去替换Markword，成功（当前锁状态由偏向锁升级为轻量级锁）后唤醒线程一继续执行，此时线程二继续通过~~自旋，超过一定的次数或时间~~，未能获取到锁，此时锁会继续升级为重量级锁）
+
+3. 轻量级锁和重量级锁在退出同步代码块时，会将对象恢复为无锁状态（001）。
 
 ### 10. Lock及AQS
 
-1. 公平锁（ReentrantLock#FairSync）
+1. 公平锁（ReentrantLock#FairSync）一朝排队，永远排队。
 
    ```java
    public final void acquire(int arg) {
@@ -382,8 +530,23 @@ ZGC的回收过程。
 
    
 
-2. 非公平锁（ReentrantLock#NonfairSync）
+2. 非公平锁（ReentrantLock#NonfairSync）只有CLH（双向链表）中的第一个节点和正在尝试获取锁的线程去竞争，第一个节点拿到锁，则新线程会进入等待队列，其余流程和公平锁一致。
 
 
 
 ### 11. 线程池ThreadPool
+
+
+
+
+
+
+
+
+
+
+## 参考链接
+
+1. [新一代垃圾回收器ZGC的探索与实践]: https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html	"新一代垃圾回收器ZGC的探索与实践"
+
+2. [死磕Synchronized底层实现]: https://github.com/farmerjohngit/myblog/issues/12	"死磕Synchronized底层实现"
