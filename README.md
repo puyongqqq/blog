@@ -343,7 +343,7 @@ ZGC的回收过程。
 
 > 32位JVM，MarkWord结构
 
-<table>
+<table cellpadding="0" cellspacing="0">
 	<tr>
 		<th> 锁状态 </th>
 		<th> 23 bits </th>
@@ -383,6 +383,7 @@ ZGC的回收过程。
         <td> 11 </td>
  	</tr>
  </table>
+
 
 > 64位JVM，MarkWord结构
 
@@ -459,6 +460,56 @@ ZGC的回收过程。
 3. 轻量级锁和重量级锁在退出同步代码块时，会将对象恢复为无锁状态（001）。
 
 ### 10. Lock及AQS
+
+> AQS：即AbstractQueuedSynchronizer，队列同步器，他提供了原子式管理同步状态、阻塞和唤醒线程功能以及队列模型的简单框架。
+>
+> Lock：从JDK1.5开始，Java提供了与Synchronized具有相同功能API可调用的一个接口，还提供了尝试获取锁（tryLock），可中断锁（lockInterruptibly）等功能。而它一个常用的实现类ReentrantLock，通过结合AQS实现了相关锁功能，其中还包括了对公平锁和非公平锁的两种实现锁机制下的不同实现。其底层主要是基于CAS（底层依赖于硬件上的原子性）去竞争锁，失败的线程会将其封装成Node，将其顺序串联起来，组成一个双向队列（CLH），然后被LockSupport.park()。
+
+> Synchronized与Lock的比较
+
+<table cellpadding="0" cellspacing="0">
+  <thead>
+    <tr>
+      <th width="100px"> 类别 </th>
+      <th>synchronized</th>
+      <th>Lock</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>存在层次</td>
+      <td>Java的关键字，在jvm层面上</td>
+      <td>是一个类</td>
+    </tr>
+    <tr>
+      <td>锁的释放</td>
+      <td>1、以获取锁的线程执行完同步代码，释放锁 <br/>2、线程执行发生异常，jvm会让线程释放锁</td>
+      <td>在finally中必须释放锁，不然容易造成线程死锁</td>
+    </tr>
+    <tr>
+      <td>锁的获取</td>
+      <td>假设A线程获得锁，B线程等待。如果A线程阻塞，B线程会一直等待</td>
+      <td>分情况而定，Lock有多个锁获取的方式，具体下面会说道，大致就是可以尝试获得锁，线程可以不用一直等待</td>
+    </tr>
+    <tr>
+      <td>锁状态</td>
+      <td>无法判断</td>
+      <td>可以判断</td>
+    </tr>
+    <tr>
+      <td>锁类型</td>
+      <td>可重入 不可中断 非公平</td>
+      <td>可重入 可判断 可公平（两者皆可）</td>
+    </tr>
+    <tr>
+      <td>性能</td>
+      <td>少量同步</td>
+      <td>大量同步</td>
+    </tr>
+  </tbody>
+</table>
+
+
 
 1. 公平锁（ReentrantLock#FairSync）一朝排队，永远排队。
 
@@ -550,3 +601,9 @@ ZGC的回收过程。
 1. <a href="https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html" target="_blank">新一代垃圾回收器ZGC的探索与实践</a>
 
 2. <a href="https://github.com/farmerjohngit/myblog/issues/12" target="_blank">死磕Synchronized底层实现</a>
+
+3. <a href="https://github.com/farmerjohngit/myblog/issues/12" target="_blank">死磕Synchronized底层实现"</a>
+
+4. <a href="https://github.com/farmerjohngit/myblog/issues/7" target="_blank">Lock(ReentrantLock)底层实现分析</a>
+
+
