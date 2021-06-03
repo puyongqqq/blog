@@ -817,3 +817,5 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
 
 4. <a target="_blank" href="https://github.com/farmerjohngit/myblog/issues/7">Lock(ReentrantLock)底层实现分析</a>
 
+5. <a target="_blank" href="https://javadoop.com/post/AbstractQueuedSynchronizer">一行一行源码分析清楚AbstractQueuedSynchronizer</a>
+
