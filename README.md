@@ -809,11 +809,11 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
 
 ## 参考链接
 
-1. [新一代垃圾回收器ZGC的探索与实践]: https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html	"新一代垃圾回收器ZGC的探索与实践"
+1. <a target="_blank" href="https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html">新一代垃圾回收器ZGC的探索与实践</a>
 
-2. [从ReentrantLock的实现看AQS的原理及应用]: https://tech.meituan.com/2019/12/05/aqs-theory-and-apply.html	"从ReentrantLock的实现看AQS的原理及应用"
+2. <a target="_blank" href="https://tech.meituan.com/2019/12/05/aqs-theory-and-apply.html">从ReentrantLock的实现看AQS的原理及应用</a>
 
-3. [死磕Synchronized底层实现]: https://github.com/farmerjohngit/myblog/issues/12	"死磕Synchronized底层实现"
+3. <a target="_blank" href="https://github.com/farmerjohngit/myblog/issues/1">死磕Synchronized底层实现</a>
 
-4. [Lock(ReentrantLock)底层实现分析]: https://github.com/farmerjohngit/myblog/issues/7 "Lock(ReentrantLock)底层实现分析"
+4. <a target="_blank" href="https://github.com/farmerjohngit/myblog/issues/7">Lock(ReentrantLock)底层实现分析</a>
 
