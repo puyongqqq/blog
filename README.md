@@ -508,6 +508,202 @@ ZGC的回收过程。
     </tr>
   </tbody>
 </table>
+AQS（AbstractQueuedSynchronizer）分析 `oracle JDK 11`。
+
+```java
+abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
+    
+    /**
+     * 属性
+     */
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // 头结点 虚节点 当前持有锁的线程
+    private transient volatile Node head;
+
+    // 阻塞的尾节点，每个新的节点进来，都插入到最后，也就形成了一个链表
+    private transient volatile Node tail;
+
+    // 这个是最重要的，代表当前锁的状态，0代表没有被占用，大于 0 代表有线程持有当前锁
+    // 这个值可以大于 1，是因为锁可以重入，每次重入都加上 1
+    private volatile int state;
+
+    // 代表当前持有独占锁的线程，举个最重要的使用例子，因为锁可以重入
+    // reentrantLock.lock()可以嵌套调用多次，所以每次用这个来判断当前线程是否已经拥有了锁
+    // if (currentThread == getExclusiveOwnerThread()) {state++}
+    private transient Thread exclusiveOwnerThread; // 继承自AbstractOwnableSynchronizer
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    
+    /**
+     * 内部类Node（非常重要）定义了CLH的节点的结构
+     */
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    static final class Node {
+        // 标识节点当前在共享模式下
+        static final Node SHARED = new Node();
+        // 标识节点当前在独占模式下
+        static final Node EXCLUSIVE = null;
+
+        // ======== 下面的几个int常量是给waitStatus用的 ===========
+        /** waitStatus value to indicate thread has cancelled */
+        // 代码此线程取消了争抢这个锁
+        static final int CANCELLED =  1;
+        /** waitStatus value to indicate successor's thread needs unparking */
+        // 官方的描述是，其表示当前node的后继节点对应的线程需要被唤醒
+        static final int SIGNAL    = -1;
+        /** waitStatus value to indicate thread is waiting on condition */
+        // 本文不分析condition，所以略过吧，下一篇文章会介绍这个
+        static final int CONDITION = -2;
+        /**
+         * waitStatus value to indicate the next acquireShared should
+         * unconditionally propagate
+         */
+        // 同样的不分析，略过吧
+        static final int PROPAGATE = -3;
+        // =====================================================
+
+
+        // 取值为上面的1、-1、-2、-3，或者0(以后会讲到)
+        // 这么理解，暂时只需要知道如果这个值 大于0 代表此线程取消了等待，
+        //    ps: 半天抢不到锁，不抢了，ReentrantLock是可以指定timeouot的。。。
+        volatile int waitStatus;
+        // 前驱节点
+        volatile Node prev;
+        // 后继节点
+        volatile Node next;
+        // 当前线程
+        volatile Thread thread;
+    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    
+    /**
+     * 重要方法
+     */
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    // 如果tryAcquire(arg) 返回true, 也就结束了。 
+    // 否则，acquireQueued方法会将线程压到队列中
+    public final void acquire(int arg) {
+        // 首先调用tryAcquire(1)一下，名字上就知道，这个只是试一试
+        // 因为有可能直接就成功了呢，也就不需要进队列排队了，
+        // 对于公平锁的语义就是：本来就没人持有锁，根本没必要进队列等待(又是挂起，又是等待被唤醒的)
+        if (!tryAcquire(arg) && // 返回true。 非公平/公平锁能够调用lock能够直接拿到锁。抽象方法，具体实现参见下文。
+            // tryAcquire(arg)没有成功，这个时候需要把当前线程挂起，放到阻塞队列中。
+            acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            // 支持线程中断，真正处理中断响应的地方。如果线程在等待队列中排队的过程中（线程此时是出于park状态），
+            // 是无法感知到响应中断请求的，所以需要等到线程拿到锁，被唤醒之后，返回Thread.interrupted()。
+            // java线程中断。PS：线程中断有什么用？为什么要中断。
+            // thread.interrupt(); // 仅仅设置线程中断状态位，无返回值，线程还是继续往下执行。
+			// thread.isInterrupted(); // 返回当前线程的中断状态。
+		    // Thread.interrupted(); // 返回当前线程的中断状态。执行后具有清除状态功能。
+            selfInterrupt();
+    }
+    
+    // 此方法的作用是把线程包装成Node，同时进入到队列中
+    // 参数mode此时是Node.EXCLUSIVE，代表独占模式
+    private Node addWaiter(Node mode) {
+        // 将线程封装成Node
+        // Node(Node nextWaiter) {
+        //    this.nextWaiter = nextWaiter; // Node.EXCLUSIVE
+        //    THREAD.set(this, Thread.currentThread()); // CAS设置当前thread为当前线程
+        // }
+        Node node = new Node(mode);
+		// 轮询 + CAS 保证添加Node一定会成功。
+        for (;;) {
+            Node oldTail = tail;
+            if (oldTail != null) {
+                // 将当前的队尾节点，设置为自己的前驱 
+                node.setPrevRelaxed(oldTail);
+                // 用CAS把自己设置为队尾, 如果成功后，tail == node 了，这个节点成为阻塞队列新的尾巴
+                if (compareAndSetTail(oldTail, node)) {
+                    // 注意！！！非原子操作。在极端情况下可能存在数据不一致。
+                    oldTail.next = node;
+                    return node;
+                }
+            } else { 
+                // 如果尾节点为null，则进行初始化队列。PS: 一个线程持有锁，当前线程获取锁失败。
+                initializeSyncQueue();
+            }
+        }
+    }
+    
+    // 下面这个方法，参数node，经过addWaiter(Node.EXCLUSIVE)，此时已经进入阻塞队列
+    // 注意一下：如果acquireQueued(addWaiter(Node.EXCLUSIVE), arg))返回true的话，
+    // 意味着上面这段代码将进入selfInterrupt()，所以正常情况下，下面应该返回false
+    // 这个方法非常重要，应该说真正的线程挂起，然后被唤醒后获取锁，都在这个方法里了
+    final boolean acquireQueued(final Node node, int arg) {
+        // 线程是否被中断过
+        boolean interrupted = false;
+        try {
+            for (;;) {
+                // 获取当前节点的前驱节点
+                final Node p = node.predecessor();
+                // 如果当前线程是头结点，那么再给它一次获取锁的机会
+                if (p == head && tryAcquire(arg)) {
+                    // 成功则设置当前节点为头结点
+                    setHead(node);
+                    p.next = null; // help GC 头结点设置为null，便于GC回收
+                    return interrupted;
+                }
+                // 到这里，说明上面的if分支没有成功，要么当前node本来就不是队头，
+                // 要么就是tryAcquire(arg)没有抢赢别人，继续往下看 
+                if (shouldParkAfterFailedAcquire(p, node)) // 维护Node中的waitStatus
+                    // 要排队的线程在此处被park(),唤醒也是从此处开始
+                    interrupted |= parkAndCheckInterrupt(); // 一真为真，返回当前线程是否被中断过。
+            }
+        } catch (Throwable t) {
+            // 取消获取锁。
+            cancelAcquire(node);
+            if (interrupted)
+                selfInterrupt();
+            throw t;
+        }
+    }
+
+    // 判断当前线程是否需要被park
+    private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        // 前驱节点的状态
+        int ws = pred.waitStatus;
+        if (ws == Node.SIGNAL) 
+            // 前驱节点的waitStatus == -1，说明前驱节点是拿到锁的线程。当前线程需要被park。
+            return true;
+        if (ws > 0) { // 前驱节点waitStatus大于0，说明前驱节点取消了排队。
+            // 从当前节点起，从后往前找到最近一个waitStatus <= 0 的前驱节点
+            do {
+                node.prev = pred = pred.prev;
+            } while (pred.waitStatus > 0);
+            // 前驱节点的下一个节点，指向这个排队的节点node
+            pred.next = node;
+        } else {
+            // 将waitStatus = 0（前驱节点是新建节点）
+            // -2（Condition），-3（？） 
+            pred.compareAndSetWaitStatus(ws, Node.SIGNAL);
+        }
+        // 这个方法返回 false，那么会再走一次 for 循序，
+        // 然后再次进来此方法，此时会从第一个分支返回 true
+        return false;
+    }
+    
+    // 这个方法很简单，因为前面返回true，所以需要挂起线程，这个方法就是负责挂起线程的
+    // 这里用了LockSupport.park(this)来挂起线程，然后就停在这里了，等待被唤醒=======
+    private final boolean parkAndCheckInterrupt() {
+        LockSupport.park(this);
+        return Thread.interrupted();
+    }
+    
+    
+    /// 解锁操作
+    
+	    
+    
+    
+    
+}
+
+
+```
+
 
 
 
@@ -523,30 +719,39 @@ ZGC的回收过程。
    ```
 
    ```java
+   // 尝试直接获取锁，返回值是boolean，代表是否获取到锁
+   // 返回true：1.没有线程在等待锁；2.重入锁，线程本来就持有锁，也就可以理所当然可以直接获取
    protected final boolean tryAcquire(int acquires) {
        final Thread current = Thread.currentThread();
-       // 获取锁的状态
        int c = getState();
+       // state == 0 此时此刻没有线程持有锁
        if (c == 0) {
-           // 没有线程持有锁
-           if (!hasQueuedPredecessors() &&   // 判断是否有正在排队的线程
-               compareAndSetState(0, acquires)) { // 无线程排队。尝试设置state为1
-               // 设置当前线程持为持有锁的线程
+           // 虽然此时此刻锁是可以用的，但是这是公平锁，既然是公平，就得讲究先来后到，
+           // 看看有没有别人在队列中等了半天了
+           if (!hasQueuedPredecessors() &&
+               // 如果没有线程在等待，那就用CAS尝试一下，成功了就获取到锁了，
+               // 不成功的话，只能说明一个问题，就在刚刚几乎同一时刻有个线程抢先了 =_=
+               // 因为刚刚还没人的，我判断过了
+               compareAndSetState(0, acquires)) {
+               // 到这里就是获取到锁了，标记一下，告诉大家，现在是我占用了锁
                setExclusiveOwnerThread(current);
                return true;
            }
        }
+       // 会进入这个else if分支，说明是重入了，需要操作：state=state+1
+       // 这里不存在并发问题
        else if (current == getExclusiveOwnerThread()) {
-           // 判断是否为持有锁的线程重入，如果是，则state + 1
            int nextc = c + acquires;
            if (nextc < 0)
-           	throw new Error("Maximum lock count exceeded");
+               throw new Error("Maximum lock count exceeded");
            setState(nextc);
            return true;
        }
-   
-       // 1. state开始为0， 但是CAS没有成功
-       // 2. 有线程正在持有锁
+       // 如果到这里，说明前面的if和else if都没有返回true，说明没有获取到锁
+       // 回到上面一个外层调用方法继续看:
+       // if (!tryAcquire(arg) 
+       //        && acquireQueued(addWaiter(Node.EXCLUSIVE), arg)) 
+       //     selfInterrupt();
        return false;
    }
    ```
@@ -583,7 +788,13 @@ ZGC的回收过程。
 
 2. 非公平锁（ReentrantLock#NonfairSync）只有CLH（双向链表）中的第一个节点和正在尝试获取锁的线程去竞争，第一个节点拿到锁，则新线程会进入等待队列，其余流程和公平锁一致。
 
+   ```
+   
+   ```
 
+   
+
+3. 
 
 ### 11. 线程池ThreadPool
 
@@ -598,12 +809,11 @@ ZGC的回收过程。
 
 ## 参考链接
 
-1. <a href="https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html" target="_blank">新一代垃圾回收器ZGC的探索与实践</a>
+1. [新一代垃圾回收器ZGC的探索与实践]: https://tech.meituan.com/2020/08/06/new-zgc-practice-in-meituan.html	"新一代垃圾回收器ZGC的探索与实践"
 
-2. <a href="https://tech.meituan.com/2019/12/05/aqs-theory-and-apply.html" target="_blank">从ReentrantLock的实现看AQS的原理及应用</a>
+2. [从ReentrantLock的实现看AQS的原理及应用]: https://tech.meituan.com/2019/12/05/aqs-theory-and-apply.html	"从ReentrantLock的实现看AQS的原理及应用"
 
-3. <a href="https://github.com/farmerjohngit/myblog/issues/12" target="_blank">死磕Synchronized底层实现"</a>
+3. [死磕Synchronized底层实现]: https://github.com/farmerjohngit/myblog/issues/12	"死磕Synchronized底层实现"
 
-4. <a href="https://github.com/farmerjohngit/myblog/issues/7" target="_blank">Lock(ReentrantLock)底层实现分析</a>
-
+4. [Lock(ReentrantLock)底层实现分析]: https://github.com/farmerjohngit/myblog/issues/7 "Lock(ReentrantLock)底层实现分析"
 
