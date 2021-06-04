@@ -693,7 +693,52 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
     }
     
     
-    /// 解锁操作
+    // 解锁操作，如果线程完成了全部的锁释放（AQS中的state == 0），则返回true，否则返回false
+    public final boolean release(int arg) {
+        // 当前线程是否释放了全部的锁
+        if (tryRelease(arg)) {
+            // 获取头结点，如果存在头结点，且头结点的状态不等于0，则表示需要唤醒后继节点
+            Node h = head;
+            if (h != null && h.waitStatus != 0)
+                unparkSuccessor(h);
+            // 锁被完全释放，返回true
+            return true;
+        }
+        // 锁未被完全释放
+        return false;
+    }
+	
+    // 如果存在后继节点，则需要唤醒
+    private void unparkSuccessor(Node node) {
+        // 头结点的状态
+        int ws = node.waitStatus;
+        if (ws < 0)
+            // CAS修改头结点的状态为0
+            node.compareAndSetWaitStatus(ws, 0);
+
+        // 从后往前找，找到head后的第一个waitStatus为非Cancel节点
+        Node s = node.next;
+        if (s == null || s.waitStatus > 0) {
+            s = null;
+            for (Node p = tail; p != node && p != null; p = p.prev)
+                if (p.waitStatus <= 0)
+                    s = p;
+        }
+        // 如果存在这样一个节点，则需要unpark解锁线程
+        if (s != null)
+            LockSupport.unpark(s.thread);
+    }
+    
+    
+    // 
+    public final boolean releaseShared(int arg) {
+        if (tryReleaseShared(arg)) {
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+    
     
 	    
     
