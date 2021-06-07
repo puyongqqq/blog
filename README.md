@@ -499,15 +499,11 @@ ZGC的回收过程。
     <tr>
       <td>锁类型</td>
       <td>可重入 不可中断 非公平</td>
-      <td>可重入 可判断 可公平（两者皆可）</td>
-    </tr>
-    <tr>
-      <td>性能</td>
-      <td>少量同步</td>
-      <td>大量同步</td>
+      <td>可重入 可中断 可公平（两者皆可）</td>
     </tr>
   </tbody>
 </table>
+
 AQS（AbstractQueuedSynchronizer）分析 `oracle JDK 11`。
 
 ```java
@@ -669,8 +665,8 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
             // 前驱节点的waitStatus == -1，说明前驱节点是拿到锁的线程。当前线程需要被park。
             return true;
         if (ws > 0) { // 前驱节点waitStatus大于0，说明前驱节点取消了排队。
-            // 从当前节点起，从后往前找到最近一个waitStatus <= 0 的前驱节点
             do {
+                // 循环向前查找取消节点，把取消节点从队列中剔除
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
             // 前驱节点的下一个节点，指向这个排队的节点node
@@ -692,6 +688,51 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
         return Thread.interrupted();
     }
     
+    // 取消排队。被中断或者发生其他异常
+    private void cancelAcquire(Node node) {
+        // 忽略掉不存在的节点
+        if (node == null)
+            return;
+
+        node.thread = null;
+
+        // 跳过被取消的前置节点，从后往前找到最近的一个非cancel的节点
+        Node pred = node.prev;
+        while (pred.waitStatus > 0)
+            node.prev = pred = pred.prev;
+		
+        // 获取最近非cancel节点的后置节点，单纯为了CAS设置pred的后继节点
+        Node predNext = pred.next;
+
+		// 设置当前节点为cancel状态
+        node.waitStatus = Node.CANCELLED;
+
+        // 判断当前节点是否为尾结点，是则移除
+        if (node == tail && compareAndSetTail(node, pred)) {
+            // CAS替换pred的后置节点为null
+            pred.compareAndSetNext(predNext, null);
+        } else {
+            // 当前node是非tail的节点
+            int ws;
+            // 如果当前节点不是head的后继节点，1:判断当前节点前驱节点的是否为SIGNAL，2:如果不是，则把前驱节点设置为SINGAL看是否成功
+            // 如果1和2中有一个为true，再判断当前节点的线程是否为null
+            // 如果上述条件都满足，把当前节点的前驱节点的后继指针指向当前节点的后继节点
+            if (pred != head &&
+                ((ws = pred.waitStatus) == Node.SIGNAL ||
+                 (ws <= 0 && pred.compareAndSetWaitStatus(ws, Node.SIGNAL))) &&
+                pred.thread != null) {
+                Node next = node.next;
+                if (next != null && next.waitStatus <= 0)
+                    // 存在后继节点且后继节点的状态为非cancel。
+                    pred.compareAndSetNext(predNext, next);
+            } else {
+                // 如果当前节点是head的后继节点，或者上述条件不满足，那就唤醒当前节点的后继节点
+                unparkSuccessor(node);
+            }
+
+            node.next = node; // help GC
+        }
+    }
     
     // 解锁操作，如果线程完成了全部的锁释放（AQS中的state == 0），则返回true，否则返回false
     public final boolean release(int arg) {
@@ -710,40 +751,131 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
 	
     // 如果存在后继节点，则需要唤醒
     private void unparkSuccessor(Node node) {
-        // 头结点的状态
+        // 获取头结点的状态
         int ws = node.waitStatus;
+       	
         if (ws < 0)
-            // CAS修改头结点的状态为0
+            // 设置为0，不存在竞争？无论成功与否都执行？
+            // 由上一个方法可知，就算是有竞争，上一步的CAS也能保证
+            // 同时只有一个线程能够拿到锁，所以，这个CAS一定是成功的
             node.compareAndSetWaitStatus(ws, 0);
-
-        // 从后往前找，找到head后的第一个waitStatus为非Cancel节点
+        // 获取头结点的下一个节点
         Node s = node.next;
+        // 这应该是一个优化，通常我们很少（基本不会）去取消排队的线程，
+        // 所以，如果下一个是非cancel的节点的话，那就直接去unpark
         if (s == null || s.waitStatus > 0) {
             s = null;
+            // 头结点的下一个节点不存在或者被cancel，那么从尾部去取这个CLH中的
+            // 第一个非cancel的节点
             for (Node p = tail; p != node && p != null; p = p.prev)
                 if (p.waitStatus <= 0)
                     s = p;
         }
-        // 如果存在这样一个节点，则需要unpark解锁线程
         if (s != null)
+            // 拿到要解锁的线程，执行unpark操作
             LockSupport.unpark(s.thread);
     }
     
     
-    // 
+    // 释放共享锁，如果当state == 0时，需要去unpark等待队列头部的线程。
     public final boolean releaseShared(int arg) {
+        // 尝试以共享模式释放锁，如果state == 0时，返回true，否则false。
         if (tryReleaseShared(arg)) {
+            // 需要唤醒等待队列中的线程
             doReleaseShared();
             return true;
         }
         return false;
     }
     
+    // 共享模式释放锁
+    private void doReleaseShared() {
+        for (;;) {
+            // TODO 设置头结点的逻辑放在了加锁的部分
+            Node h = head;
+            // 判断等待队列存在（队列中至少存在一个等待获取锁的节点Node）
+            if (h != null && h != tail) {
+                int ws = h.waitStatus;
+                // 如果头结点的状态为-1
+                if (ws == Node.SIGNAL) {
+                    // CAS修改头结点的waitStatus（保证并发情况下，只有一个线程能修改成功）
+                    if (!h.compareAndSetWaitStatus(Node.SIGNAL, 0))
+                        continue;
+                    // 修改成功之后，唤醒头结点之后的第一个非cancel的节点
+                    unparkSuccessor(h);
+                }
+                else if (ws == 0 &&
+                         // Node.PROPAGATE 为了解决线程无法会唤醒的窘境 （Semaphore中会体现）
+                         !h.compareAndSetWaitStatus(0, Node.PROPAGATE))
+                    continue;
+            }
+            // 等待队列不存在
+            if (h == head) 
+                break;
+        }
+    }
     
-	    
+    // 获取可中断的共享锁
+    public final void acquireSharedInterruptibly(int arg)
+            throws InterruptedException {
+        if (Thread.interrupted())
+            throw new InterruptedException();
+        // 以共享模式去尝试获取锁
+        // tryAcquireShared(arg) 返回 > 0，表示后续线程还能够以共享形式获取到锁
+        //                       返回 = 0，表示当前线程拿到锁，后续线程无法拿到锁。
+        //                       返回 < 0，表示当前线程未拿到锁，后续线程也无法拿到锁。
+        if (tryAcquireShared(arg) < 0)
+            // 0 、 -1的情况，线程需要排队
+            doAcquireSharedInterruptibly(arg);
+    }
     
+    // 获取可中断的共享锁
+    private void doAcquireSharedInterruptibly(int arg)
+        throws InterruptedException {
+        // 将当前节点以共享模式添加到CLH中，并返回当前节点
+        final Node node = addWaiter(Node.SHARED);
+        try {
+            for (;;) {
+                // 获取当前的节点的前一个节点
+                final Node p = node.predecessor();
+                if (p == head) {
+                    // 如果p是头结点，再给其一次获取锁的机会
+                    int r = tryAcquireShared(arg);
+                    if (r >= 0) {
+                        // 设置头部和传播
+                        setHeadAndPropagate(node, r);
+                        p.next = null; // help GC
+                        return;
+                    }
+                }
+                // 那么这个线程是否需要被挂起
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    // 挂起线程且检查中断
+                    parkAndCheckInterrupt())
+                    throw new InterruptedException();
+            }
+        } catch (Throwable t) {
+            cancelAcquire(node);
+            throw t;
+        }
+    }
     
-    
+    // 设置头部和传播
+    private void setHeadAndPropagate(Node node, int propagate) {
+        Node h = head; // Record old head for check below
+        setHead(node);
+		
+        // 有上一个方法可知，propagate一定是大于等于0的，当其大于0，表示后续线程任然可以获得共享锁
+        if (propagate > 0 || h == null || h.waitStatus < 0 ||
+            (h = head) == null || h.waitStatus < 0) {
+            Node s = node.next;
+            if (s == null || s.isShared())
+                // 释放锁，见上文
+                doReleaseShared();
+        }
+    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	
 }
 
 
@@ -833,17 +965,40 @@ abstract class AbstractQueuedSynchronizer extends AbstractOwnableSynchronizer {
 
 2. 非公平锁（ReentrantLock#NonfairSync）只有CLH（双向链表）中的第一个节点和正在尝试获取锁的线程去竞争，第一个节点拿到锁，则新线程会进入等待队列，其余流程和公平锁一致。
 
-   ```
-   
+   ```java
+       
+   	// Sync#nonfairTryAcquire
+   	// 尝试获取非公平锁，如果获取锁失败，则进行排队，和公平锁一致
+       final boolean nonfairTryAcquire(int acquires) {
+           final Thread current = Thread.currentThread();
+           int c = getState();
+           if (c == 0) {
+               // 非公平所在！！！
+               // 只要有线程来竞争锁，就会先尝试通过CAS获取锁
+               if (compareAndSetState(0, acquires)) {
+                   setExclusiveOwnerThread(current);
+                   return true;
+               }
+           }
+           // 判断重入
+           else if (current == getExclusiveOwnerThread()) {
+               int nextc = c + acquires;
+               if (nextc < 0) // overflow
+                   throw new Error("Maximum lock count exceeded");
+               setState(nextc);
+               return true;
+           }
+           return false;
+       }
    ```
 
    
 
-3. 
+3. 常用并发工具类
+
+   
 
 ### 11. 线程池ThreadPool
-
-
 
 
 
