@@ -64,7 +64,7 @@ InnoDB因其支持事务和行锁，并发性能高，在MySQL5.5被作为其默
 
 > 单条更新语句的执行，Innodb默认会以事务方式执行。
 
-![image-20210624180642664](https://github.com/puyongqqq/blog/blob/master/assert/static/image-20210624180642664.png)
+![image-20210624180642664](https://github.com/puyongqqq/blog/blob/master/assert/static/image-20210624180642664.png?raw=true)
 
 1. 连接数据库，清空查询缓存（MySQL8.0之前）；
 2. 分析词法和语法后知道这是一条update语句，优化器决定使用ID这个索引执行器先找引擎取 ID=2 这一行。ID 是主键，引擎直接用树搜索找到这一行；
